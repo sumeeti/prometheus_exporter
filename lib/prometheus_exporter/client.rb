@@ -59,7 +59,8 @@ module PrometheusExporter
       max_queue_size: nil,
       thread_sleep: 0.5,
       json_serializer: nil,
-      custom_labels: nil
+      custom_labels: nil,
+      logger: nil
     )
       @metrics = []
 
@@ -68,6 +69,8 @@ module PrometheusExporter
       @socket = nil
       @socket_started = nil
       @socket_pid = nil
+
+      @logger = logger
 
       max_queue_size ||= MAX_QUEUE_SIZE
       max_queue_size = max_queue_size.to_i
@@ -90,6 +93,10 @@ module PrometheusExporter
 
     def custom_labels=(custom_labels)
       @custom_labels = custom_labels
+    end
+
+    def logger=(logger)
+      @logger = logger
     end
 
     def register(type, name, help, opts = nil)
@@ -125,7 +132,7 @@ module PrometheusExporter
     def send(str)
       @queue << str
       if @queue.length > @max_queue_size
-        STDERR.puts "Prometheus Exporter client is dropping message cause queue is full"
+        log_error("Prometheus Exporter client is dropping message cause queue is full")
         @queue.pop
       end
 
@@ -143,7 +150,7 @@ module PrometheusExporter
           @socket.write(message)
           @socket.write("\r\n")
         rescue => e
-          STDERR.puts "Prometheus Exporter is dropping a message: #{e}"
+          log_error("Prometheus Exporter is dropping a message: #{e}")
           @socket = nil
           raise
         end
@@ -168,7 +175,7 @@ module PrometheusExporter
       close_socket_if_old!
       process_queue
     rescue => e
-      STDERR.puts "Prometheus Exporter, failed to send message #{e}"
+      log_error("Prometheus Exporter, failed to send message #{e}")
     end
 
     def ensure_worker_thread!
@@ -243,6 +250,15 @@ module PrometheusExporter
         break if start_time + timeout_seconds < ::Process.clock_gettime(::Process::CLOCK_MONOTONIC)
         sleep(0.05)
       end
+    end
+
+    def log_error(error_message)
+      if @logger&.dig(:instance)&.respond_to? :add
+        @logger[:instance].add(@logger[:level], error_message)
+      else
+        STDERR.puts error_message
+      end
+      nil
     end
   end
 
